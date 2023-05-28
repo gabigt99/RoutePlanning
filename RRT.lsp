@@ -27,15 +27,8 @@
 )
 
 ;(node q parent)
-(defun rrt (q0 qgoal max-iterations delta hand / tree i continue qrand qnear qnew)
+(defun rrt (q0 qgoal max-iterations delta / tree i continue qrand qnear qnew)
   ; Declare the variables used in the function
-  (setq hand-restriction (list (- (/ pi 2)) (/ pi 2)))
-  (if (= hand "right")
-    (setq hand-restriction (list 0 (/ pi 2)))
-  )
-  (if (= hand "left")
-    (setq hand-restriction (list (- (/ pi 2)) 0))
-  )
   (setq tree (list (list q0 nil)))
   (setq goal-found nil)
   (setq i 0)
@@ -43,7 +36,7 @@
     (setq continue nil)
     (setq qrand (list (random-angle (nth 0 qmin) (nth 0 qmax))
                       (random-angle (nth 1 qmin) (nth 1 qmax))))
-    (if (not (valid-configuration qrand hand-restriction))
+    (if (not (valid-configuration qrand))
         (progn
           (setq i (+ i 1)) ; Increment i
           (setq continue t)))
@@ -51,7 +44,7 @@
       (progn
         (setq qnear (nearest-neighbor qrand tree))
         (setq qnew (new-configuration qnear qrand delta))
-        (if (not (valid-configuration qnew hand-restriction))
+        (if (not (valid-configuration qnew))
             (progn
               (setq i (+ i 1)) ; Increment i
               (setq continue t)))
@@ -77,10 +70,9 @@
 )
 
 ; Define helper functions
-(defun valid-configuration (q hand-restriction)
+(defun valid-configuration (q)
   (and (<= (nth 0 qmin) (nth 0 q) (nth 0 qmax))
        (<= (nth 1 qmin) (nth 1 q) (nth 1 qmax))
-       (<= (nth 0 hand-restriction) (nth 1 q) (nth 1 hand-restriction))
        (notCollision q))
 )
 
@@ -169,7 +161,7 @@
 )
 
 ; Run the RRT algorithm
-(setq build-tree (rrt q0 goal 4000 50 "right"))
+(setq build-tree (rrt q0 goal 4000 50))
 (setq path (reverse (extract-path (last build-tree) build-tree)))
 
 ; Draw path
