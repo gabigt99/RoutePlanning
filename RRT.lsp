@@ -49,7 +49,7 @@
 )
 
 
-; Check if the random generated point is close enough to the other points in the trees
+; Check if the random generated point is close enough to the other points in the tree; in case it's too far away moves the point closer
 (defun distance-check (qnear qrand delta / distance-new-point theta qnew)
   (setq distance-new-point (euclidean-distance qnear qrand))
   (if (< distance-new-point delta) qrand
