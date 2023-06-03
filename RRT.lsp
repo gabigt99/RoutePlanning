@@ -1,24 +1,36 @@
+; Variables setup
 (setq l1 150.0  ; length of link 1
       l2 100.0) ; length of link 2
 
+
 ; Define obstacles
 (setq obstacles (list (list (list 205.0 115.0) 10)
+
 		      (list (list -50.0 110.0) 5)))
 ; Opora point
 (setq base-point (list 0.0 0.0))
+
 
 ; Define the configuration space bounds
 (setq qmin (list (- (/ pi 2)) (- (/ pi 2))))
 (setq qmax (list (/ pi 2) (/ pi 2)))
 
+
 ; Define the initial configuration
 (setq q0 (list 0.0 0.0))
+
 
 ; Define the goal configuration
 (setq goal (list 1.0 1.0))
 
+
+
+
+; FUNCTION DEFINITIONS
+
+
 ; Define the robot arm kinematics
-(defun forward-kinematics (theta1 theta2)
+(defun forward-kinematics (theta1 theta2 / x y)
   (setq x 0.0  ; x-coordinate of end effector
         y 0.0) ; y-coordinate of end effector
   (setq x (+ (* l1 (cos theta1)) (* l2 (cos (+ theta1 theta2)))))
@@ -26,79 +38,21 @@
   (list x y)
 )
 
-;(node q parent)
-(defun rrt (q0 qgoal max-iterations delta hand / tree i continue qrand qnear qnew)
-  ; Declare the variables used in the function
-  (setq hand-restriction (list (- (/ pi 2)) (/ pi 2)))
-  (if (= hand "right")
-    (setq hand-restriction (list 0 (/ pi 2)))
-  )
-  (if (= hand "left")
-    (setq hand-restriction (list (- (/ pi 2)) 0))
-  )
-  (setq tree (list (list q0 nil)))
-  (setq goal-found nil)
-  (setq i 0)
-  (while (and (< i max-iterations) (not goal-found))
-    (setq continue nil)
-    (setq qrand (list (random-angle (nth 0 qmin) (nth 0 qmax))
-                      (random-angle (nth 1 qmin) (nth 1 qmax))))
-    (if (not (valid-configuration qrand hand-restriction))
-        (progn
-          (setq i (+ i 1)) ; Increment i
-          (setq continue t)))
-    (if (and (not continue))
-      (progn
-        (setq qnear (nearest-neighbor qrand tree))
-        (setq qnew (new-configuration qnear qrand delta))
-        (if (not (valid-configuration qnew hand-restriction))
-            (progn
-              (setq i (+ i 1)) ; Increment i
-              (setq continue t)))
-        (if (and (< (distance1 qnew qgoal) delta) (not continue))
-            (progn (setq goal-found t)
-                   (setq tree (append tree (list (list qnew qnear))))
-                   (setq i (+ i 1)) ; Increment i
-                   (setq continue t)))
-        (if (and (not continue))
-	  (progn
-            (setq tree (append tree (list (list qnew qnear))))
-            (setq i (+ i 1)) ; Increment i
-	  )
-        )
-      )
-    )
-  )
-  (print i)
-  (print goal-found)
-  (print max-iterations)
-  (print (distance1 qnew qgoal))
-  (if goal-found (append tree (list (list qgoal qnew))) nil)
+
+; Calculate the distance between two points
+(defun euclidean-distance (q1 q2 / p1 p2 dx dy)
+  (setq p1 (forward-kinematics (nth 0 q1) (nth 1 q1))
+	p2 (forward-kinematics (nth 0 q2) (nth 1 q2)))
+  (setq dx (- (nth 0 p1) (nth 0 p2)))
+  (setq dy (- (nth 1 p1) (nth 1 p2)))
+  (sqrt (+ (* dx dx) (* dy dy)))
 )
 
-; Define helper functions
-(defun valid-configuration (q hand-restriction)
-  (and (<= (nth 0 qmin) (nth 0 q) (nth 0 qmax))
-       (<= (nth 1 qmin) (nth 1 q) (nth 1 qmax))
-       (<= (nth 0 hand-restriction) (nth 1 q) (nth 1 hand-restriction))
-       (notCollision q))
-)
 
-(defun nearest-neighbor (q tree)
-  (setq nearest nil)
-  (setq min-distance nil)
-  (foreach node tree
-    (setq qn (car node))
-    (setq d (distance1 q qn))
-    (if (or (null min-distance) (< d min-distance)) 
-        (progn (setq nearest qn)
-               (setq min-distance d))))
-  nearest
-)
-
-(defun new-configuration (qnear qrand delta)
-  (setq distance2 (distance1 qnear qrand))
-  (if (< distance2 delta) qrand
+; Check if the random generated point is close enough to the other points in the trees
+(defun distance-check (qnear qrand delta / distance-new-point theta qnew)
+  (setq distance-new-point (euclidean-distance qnear qrand))
+  (if (< distance-new-point delta) qrand
     (progn
       (setq theta (atan (- (nth 1 qrand) (nth 1 qnear))
                         (- (nth 0 qrand) (nth 0 qnear))))
@@ -107,7 +61,42 @@
   qnew))
 )
 
-(defun notCollision (q)
+
+; Find the nearest neighbor of a chosen point
+(defun nearest-neighbor (q tree / nearest min-distance qn d)
+  (setq nearest nil)
+  (setq min-distance nil)
+  (foreach node tree
+    (setq qn (car node))
+    (setq d (euclidean-distance q qn))
+    (if (or (null min-distance) (< d min-distance)) 
+        (progn (setq nearest qn)
+               (setq min-distance d))))
+  nearest
+)
+
+
+; Check for collision with a chosen robot arm link
+(defun check-collisions (p1 p2 B n / a0 a L R ang collision)
+  (setq L (distance p1 p2)
+	a0 0.0
+	a (/ L (* 2.0 n))
+	ang (angle p1 p2)
+	R  (sqrt (+ (* (/ B 2.0) (/ B 2.0)) (* a a)))
+	collision nil
+  )
+  (repeat (+ n 1)
+    (foreach obst obstacles
+      (if (< (distance p1 (nth 0 obst)) (+ R (nth 1 obst))) (setq collision t))
+    )
+    (setq p1 (polar p1 ang (+ a0 (* a 2.0))))
+  )
+  collision
+)
+
+
+; Check if a collision occured
+(defun notCollision (q / p1 p2)
   (setq p1 (polar base-point (nth 0 q) l1)
 	p2 (polar p1 (+ (nth 0 q) (nth 1 q)) l2))
     
@@ -115,32 +104,17 @@
 	 (not (check-collisions p1 p2 40.0 7)))
 )
 
-(defun check-collisions (p1 p2 B n / a L R ang)
-  (setq L (distance p1 p2)
-	a0 0.0
-	a (/ L (* 2.0 n))
-	ang (angle p1 p2)
-	R  (sqrt (+ (* (/ B 2.0) (/ B 2.0)) (* a a)))
-	colision nil
-  )
 
-  (repeat (+ n 1)
-    (foreach obst obstacles
-      (if (< (distance p1 (nth 0 obst)) (+ R (nth 1 obst))) (setq colision t))
-    )
-    (setq p1 (polar p1 ang (+ a0 (* a 2.0))))
-  )
-  colision
+; Check if the configuration is valid
+(defun valid-configuration (q hand-restriction)
+  (and (<= (nth 0 qmin) (nth 0 q) (nth 0 qmax))
+       (<= (nth 1 qmin) (nth 1 q) (nth 1 qmax))
+       (<= (nth 0 hand-restriction) (nth 1 q) (nth 1 hand-restriction))
+       (notCollision q))
 )
 
-(defun distance1 (q1 q2)
-  (setq p1 (forward-kinematics (nth 0 q1) (nth 1 q1))
-	p2 (forward-kinematics (nth 0 q2) (nth 1 q2)))
-  (setq dx (- (nth 0 p1) (nth 0 p2)))
-  (setq dy (- (nth 1 p1) (nth 1 p2)))
-  (sqrt (+ (* dx dx) (* dy dy)))
-)
 
+; RNG function
 (defun rnd (/ modulus multiplier increment random)
   (if (not seed)
     (setq seed (getvar "DATE"))
@@ -153,11 +127,98 @@
   )
 )
 
+
+; Generate random angle between two chosen angles
 (defun random-angle (angle1 angle2)
   (+ angle1 (* (rnd) (- angle2 angle1)))
 )
 
-(defun extract-path (last-node tree)
+
+; Define the robot arm angle restrictions
+(defun hand-settings (hand / hand-restriction)
+  (setq hand-restriction (list (- (/ pi 2)) (/ pi 2)))
+  (if (= hand "right")
+    (setq hand-restriction (list 0 (/ pi 2)))
+  )
+  (if (= hand "left")
+    (setq hand-restriction (list (- (/ pi 2)) 0))
+  )
+  hand-restriction)
+
+
+;(node q parent)
+; Define the rrt algorithm
+(defun rrt (qgoal max-iterations delta hand tree / continue qrand qnear qnew i hand-restriction)
+  ; Declare the variables used in the function
+  (setq hand-restriction (hand-settings hand))
+  (setq i 0)
+  (while (and (< i max-iterations) (not goal-found))
+    (setq continue nil)
+    (setq qrand (list (random-angle (nth 0 qmin) (nth 0 qmax))
+                      (random-angle (nth 1 qmin) (nth 1 qmax))))
+    (if (not (valid-configuration qrand hand-restriction))
+        (progn
+          (setq i (+ i 1))
+          (setq continue t)))
+    (if (and (not continue))
+      (progn
+        (setq qnear (nearest-neighbor qrand tree))
+        (setq qnew (distance-check qnear qrand delta))
+        (if (not (valid-configuration qnew hand-restriction))
+            (progn
+              (setq i (+ i 1))
+              (setq continue t)))
+        (if (and (< (euclidean-distance qnew qgoal) delta) (not continue))
+            (progn (setq goal-found t)
+                   (setq tree (append tree (list (list qnew qnear))))
+                   (setq i (+ i 1))
+                   (setq continue t)))
+        (if (and (not continue))
+	  (progn
+            (setq tree (append tree (list (list qnew qnear))))
+            (setq i (+ i 1))
+	  )
+        )
+      )
+    )
+  )
+  (if goal-found (setq tree (append tree (list (list qgoal qnew)))))
+  (list tree goal-found)
+)
+
+
+; This function wraps the rrt algorithm in order to preserve the progress of the tree building
+(defun rrt-wrapper (q0 qgoal max-iterations delta hand / tree goal-found results)
+  (setq tree (list (list q0 nil)))
+  (setq goal-found nil)
+  (setq results (rrt qgoal max-iterations delta hand tree))
+  (setq tree (nth 0 results))
+  (setq goal-found (nth 1 results))
+  (if (not goal-found)
+    (progn
+      (if (= hand "right")
+	(progn
+	  (setq hand "left")
+	  (setq results (rrt qgoal max-iterations delta hand tree))
+	  ))
+      (if (= hand "left")
+	(progn
+	  (setq hand "right")
+	  (setq results (rrt qgoal max-iterations delta hand tree))
+	  ))
+      (setq goal-found (nth 1 results))
+      (if (not goal-found)
+	(setq tree nil)
+	(setq tree (nth 0 results))
+	)
+      )
+    )
+  tree
+)
+
+
+; Create a list of points containing the path from the start to the goal
+(defun extract-path (last-node tree / config parent)
   (if (null last-node)
     '()
     (progn
@@ -168,17 +229,26 @@
   )
 )
 
+
+
+
+
+; MAIN
+
 ; Run the RRT algorithm
-(setq build-tree (rrt q0 goal 4000 50 "right"))
+(setq build-tree (rrt-wrapper q0 goal 4000 50 "right"))
 (setq path (reverse (extract-path (last build-tree) build-tree)))
+
 
 ; Draw path
 (defun draw-robot-path (path / p1 p2 q obst)
   (opora base-point 8)
+  (make-c (forward-kinematics (nth 0 q0) (nth 1 q0)) 5.0 2 "path")
+  (make-c (forward-kinematics (nth 0 goal) (nth 1 goal)) 5.0 3 "path")
+  (print-polyline-path path)
   (foreach obst obstacles
     (make-c (nth 0 obst) (nth 1 obst) 1 "obst")
   )
-  
   (foreach q path
     (animate "Link")
     (animate "circle")
@@ -216,10 +286,14 @@
   (make-lwpol list-of-points t)
 )
 
+
 ; Draw line
-(defun line1 (p1 p2 sloj col1 / ) (entmake (list '(0 . "LINE") (cons 8 sloj) (cons 62 col1) (cons 10 p1) (cons 11 p2))) (princ) );end defun
+(defun line1 (p1 p2 sloj col1 / ) (entmake (list '(0 . "LINE") (cons 8 sloj) (cons 62 col1) (cons 10 p1) (cons 11 p2))) (princ))
+
+
 ; Draw circle
-(defun make-c (cen rad col layer1 / ) (entmake (list '(0 . "CIRCLE")  (cons 8 layer1) (cons 62 col) (cons 10 cen) (cons 40 rad))) (princ)) ;end _ make-c
+(defun make-c (cen rad col layer1 / ) (entmake (list '(0 . "CIRCLE")  (cons 8 layer1) (cons 62 col) (cons 10 cen) (cons 40 rad))) (princ))
+
 
 ; Draw base
 (defun opora (p1 rad / p2 p3 p4 p5)
@@ -234,6 +308,7 @@
   (princ)
 )
 
+
 ; Fill the robotic arm with circles
 (defun fill-with-circles (p1 p2 B n / a L R ang)
   (setq L (distance p1 p2)
@@ -242,12 +317,12 @@
 	ang (angle p1 p2)
 	R  (sqrt (+ (* (/ B 2.0) (/ B 2.0)) (* a a)))
   )
-
   (repeat (+ n 1)
     (make-c p1 R 6 "circle")
     (setq p1 (polar p1 ang (+ a0 (* a 2.0))))
   )
 )
+
 
 ; Draw polyline
 (defun make-lwpol (vertices closed)
@@ -262,4 +337,20 @@
      )
   )
   (princ)
+)
+
+
+; Connect the points marking the path
+(defun print-polyline-path (path / i)
+  (if (> (length path) 2)
+    (progn
+      (setq i 1)
+      (while (< i (length path))
+	(setq first (forward-kinematics (nth 0 (nth (- i 1) path)) (nth 1 (nth (- i 1) path))))
+	(setq second (forward-kinematics (nth 0 (nth i path)) (nth 1 (nth i path))))
+	(line1 first second "path" 7)
+	(setq i (+ i 1))
+      )
+    )
+  )
 )
